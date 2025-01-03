@@ -72,19 +72,8 @@ class CardValuation:
 
 
     def __post_init__(self) -> None:
-        self.deck_max_sum = CardValuation.deck_max_sum_with_seen(self.n, self.seen_cards, self.deck)
-        
-        for strike in self.strike_list:        
-            theo = self.option_theos(self.seen_cards, self.n, strike)
-            delta = self.option_deltas(self.seen_cards, self.n, strike)
-            gamma = self.option_gammas(self.seen_cards, self.n, strike)            
-            theta = self.option_thetas(theo, self.seen_cards, self.n, strike)
-            self.options[strike] = Option(
-                strike,
-                OptionValuation(theo.call, delta.call, gamma.call, theta.call if len(self.seen_cards) < self.n else 0),
-                OptionValuation(theo.put, delta.put, gamma.put, theta.put if len(self.seen_cards) < self.n else 0),
-                self.n - len(self.seen_cards)
-            )
+        self.validate_strikes()
+        self.calculate_all_greeks_and_theos()
 
 
     def __repr__(self) -> str:
@@ -109,6 +98,10 @@ class CardValuation:
         
         return pd.DataFrame.from_records(records, columns=['Strike', 'OptionType', 'Theo', 'Delta', 'Gamma', 'Theta']).to_string(index=False)
 
+
+    def validate_strikes(self) -> None:
+        self.strike_list = sorted(list(set(self.strike_list)))
+        
 
     @staticmethod
     def deck_max_sum_with_seen(n: int, known_cards: list[int], deck: list[int]) -> int:
@@ -244,3 +237,18 @@ class CardValuation:
             (1 - decimal) * next_val_bot.call + decimal * next_val_top.call - theo.call,
             (1 - decimal) * next_val_bot.put + decimal * next_val_top.put - theo.put
         ) 
+
+
+    def calculate_all_greeks_and_theos(self) -> None:
+        self.deck_max_sum = CardValuation.deck_max_sum_with_seen(self.n, self.seen_cards, self.deck)
+        for strike in self.strike_list:        
+            theo = self.option_theos(self.seen_cards, self.n, strike)
+            delta = self.option_deltas(self.seen_cards, self.n, strike)
+            gamma = self.option_gammas(self.seen_cards, self.n, strike)            
+            theta = self.option_thetas(theo, self.seen_cards, self.n, strike)
+            self.options[strike] = Option(
+                strike,
+                OptionValuation(theo.call, delta.call, gamma.call, theta.call if len(self.seen_cards) < self.n else 0),
+                OptionValuation(theo.put, delta.put, gamma.put, theta.put if len(self.seen_cards) < self.n else 0),
+                self.n - len(self.seen_cards)
+            )
