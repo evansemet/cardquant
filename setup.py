@@ -5,7 +5,7 @@ with open("README.md", "r", encoding="utf-8") as fh:
 
 setup(
     name="cardquant",
-    version="0.1.0",
+    version="0.1.1",
     author="Evan Semet",
     author_email="evancsemet@gmail.com",
     description="A library for mock quantitative trading exercises.",
@@ -21,8 +21,7 @@ setup(
         "License :: OSI Approved :: MIT License",
         "Operating System :: OS Independent",
     ],
-    package_dir={"": "cardquant"},
-    packages=find_packages(where="cardquant"),
+    packages=find_packages(),
     python_requires=">=3.7",
     install_requires=[
         "numpy",
