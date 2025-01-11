@@ -2,10 +2,13 @@ import math
 from dataclasses import dataclass, field, fields
 from itertools import product
 from collections import Counter
-from typing import Annotated, get_args, get_origin, Any
+from typing import Annotated, get_args, get_origin, Any, Callable
 import numpy as np
 from enum import Enum
 import pandas as pd
+from copy import copy
+from rich.console import Console
+from rich.table import Table
 
 
 def validate_annotated_fields(instance: Any, round_values: bool) -> None:
@@ -31,9 +34,11 @@ def validate_annotated_fields(instance: Any, round_values: bool) -> None:
 @dataclass
 class OptionValuation:
     theo: Annotated[float, lambda x: x >= -1e-6]
-    delta: Annotated[float, lambda x: abs(x) <= 1+1e-6]
-    gamma: Annotated[float, lambda x: -1e-6 <= x <= 1+1e-6]
-    theta: Annotated[float, lambda x: x <= 1e-6]
+    delta: Annotated[float, lambda x: abs(x) <= 1+1e-6 or np.isnan(x)]
+    gamma: Annotated[float, lambda x: -1e-6 <= x <= 1+1e-6 or np.isnan(x)]
+    theta: Annotated[float, lambda x: x <= 1e-6 or np.isnan(x)]
+    charm: Annotated[float, lambda x: abs(x) <= 1+1e-6 or np.isnan(x)]
+    color: Annotated[float, lambda x: abs(x) <= 1+1e-6 or np.isnan(x)]
 
     def __post_init__(self) -> None:
         validate_annotated_fields(self, True)
@@ -67,41 +72,79 @@ class CardValuation:
     strike_list: list[int] = field(default_factory=lambda: list(range(50, 91, 10)))
     seen_cards: list[int] = field(default_factory=list)
     options: dict[int, Option] = field(default_factory=dict)
+    future: float = field(init=False)
     deck: list[int] = field(default_factory=lambda: list(range(1, 14)) * 4)
     deck_max_sum: int = field(init=False)
+    with_replacement: bool = field(default=False)
+    calculate_greeks: bool = field(default=True)
 
 
     def __post_init__(self) -> None:
         self.validate_strikes()
+        self.replacement()
         self.calculate_all_greeks_and_theos()
 
 
     def __repr__(self) -> str:
         records = list[dict[str, int | float | str]]()
-        for strike, option in self.options.items():
-            records.append({
-                'Strike': strike,
-                'OptionType': 'CALL',
-                'Theo': option.call.theo,
-                'Delta': option.call.delta,
-                'Gamma': option.call.gamma,
-                'Theta': option.call.theta
-            })
-            records.append({
-                'Strike': strike,
-                'OptionType': 'PUT',
-                'Theo': option.put.theo,
-                'Delta': option.put.delta,
-                'Gamma': option.put.gamma,
-                'Theta': option.put.theta
-            })
+        if self.calculate_greeks:
+            for strike, option in self.options.items():
+                records.append({
+                    'Strike': strike,
+                    'OptionType': 'CALL',
+                    'Theo': option.call.theo,
+                    'Delta Δ': option.call.delta,
+                    'Gamma Γ': option.call.gamma,
+                    'Theta Θ': option.call.theta,
+                    'Charm ψ': option.call.charm,
+                    'Color χ': option.call.color
+                })
+                records.append({
+                    'Strike': strike,
+                    'OptionType': 'PUT',
+                    'Theo': option.put.theo,
+                    'Delta Δ': option.put.delta,
+                    'Gamma Γ': option.put.gamma,
+                    'Theta Θ': option.put.theta,
+                    'Charm ψ': option.put.charm,
+                    'Color χ': option.put.color
+                })
+            columns = ['Strike', 'OptionType', 'Theo', 'Delta Δ', 'Gamma Γ', 'Theta Θ', 'Charm ψ', 'Color χ']
         
-        return pd.DataFrame.from_records(records, columns=['Strike', 'OptionType', 'Theo', 'Delta', 'Gamma', 'Theta']).to_string(index=False)
+        else:
+            for strike, option in self.options.items():
+                records.append({
+                    'Strike': strike,
+                    'OptionType': 'CALL',
+                    'Theo': option.call.theo
+                })
+                records.append({
+                    'Strike': strike,
+                    'OptionType': 'PUT',
+                    'Theo': option.put.theo
+                })
+            columns = ['Strike', 'OptionType', 'Theo']
+        
+        df = pd.DataFrame.from_records(data=records, columns=columns)
+        table = Table(title=f"Future Valuation: {round(self.future, 4)}")
+        for column in columns:
+            table.add_column(column, justify="right")
 
+        for _,row in df.iterrows():
+            table.add_row(*[str(row[col]) for col in columns])
+
+        Console().print(table)
+        return ""
+            
 
     def validate_strikes(self) -> None:
         self.strike_list = sorted(list(set(self.strike_list)))
         
+    
+    def replacement(self) -> None:
+        if self.with_replacement:
+            self.deck = list(set(self.deck)) * self.n
+
 
     @staticmethod
     def deck_max_sum_with_seen(n: int, known_cards: list[int], deck: list[int]) -> int:
@@ -219,36 +262,68 @@ class CardValuation:
             self.option_delta(known_cards, n_total, strike, OptionType.CALL), 
             self.option_delta(known_cards, n_total, strike, OptionType.PUT)
         )
+        
+        
+    def mean_remaining(self, known_cards: list[int]) -> float:
+        leftover = Counter(self.deck)
+        leftover.subtract(known_cards)
+        remaining_cards = [rank for rank, count in leftover.items() for _ in range(count) if count > 0]
+        return np.mean(remaining_cards) if remaining_cards else 0
+        
+    
+    def change_time_greek(self, current: OptionValues, function: Callable, known_cards: list[int], n_total: int, strike: int, mean_remaining: float | None = None) -> OptionValues:
+        mean_remaining = mean_remaining if mean_remaining is not None else self.mean_remaining(known_cards)
+        bot, top = math.floor(mean_remaining), math.ceil(mean_remaining)
+        decimal = mean_remaining - bot
+        max_sum_cpy = copy(self.deck_max_sum)
+        self.deck_max_sum = CardValuation.deck_max_sum_with_seen(n_total, known_cards + [bot], self.deck)
+        next_val_bot = function(known_cards + [bot], n_total, strike)
+        self.deck_max_sum = CardValuation.deck_max_sum_with_seen(n_total, known_cards + [top], self.deck)
+        next_val_top = function(known_cards + [top], n_total, strike)
+        self.deck_max_sum = max_sum_cpy
+        return OptionValues(
+            (1 - decimal) * next_val_bot.call + decimal * next_val_top.call - current.call,
+            (1 - decimal) * next_val_bot.put + decimal * next_val_top.put - current.put
+        )
 
         
-    def option_thetas(self, theo: OptionValues, known_cards: list[int], n_total: int, strike: int) -> OptionValues:
+    def option_thetas(self, theo: OptionValues, known_cards: list[int], n_total: int, strike: int, mean_remaining: float | None = None) -> OptionValues:
+        return self.change_time_greek(theo, self.option_theos, known_cards, n_total, strike, mean_remaining)
+        
+    
+    def option_charms(self, delta: OptionValues, known_cards: list[int], n_total: int, strike: int, mean_remaining: float | None = None) -> OptionValues:
+        return self.change_time_greek(delta, self.option_deltas, known_cards, n_total, strike, mean_remaining)
+        
+    
+    def option_colors(self, gamma: OptionValues, known_cards: list[int], n_total: int, strike: int, mean_remaining: float | None = None) -> OptionValues:
+        return self.change_time_greek(gamma, self.option_gammas, known_cards, n_total, strike, mean_remaining)
+
+
+    def calculate_future_value(self, known_cards: list[int], n_total: int) -> None:
         leftover = Counter(self.deck)
         leftover.subtract(known_cards)
         remaining_cards = [rank for rank, count in leftover.items() for _ in range(count) if count > 0]
         mean_remaining = np.mean(remaining_cards) if remaining_cards else 0
-        bot, top = math.floor(mean_remaining), math.ceil(mean_remaining)
-        decimal = mean_remaining - bot
-        self.deck_max_sum = CardValuation.deck_max_sum_with_seen(self.n, known_cards + [bot], self.deck)
-        next_val_bot = self.option_theos(known_cards + [bot], n_total, strike)
-        self.deck_max_sum = CardValuation.deck_max_sum_with_seen(self.n, known_cards + [top], self.deck)
-        next_val_top = self.option_theos(known_cards + [top], n_total, strike)
-        self.deck_max_sum = CardValuation.deck_max_sum_with_seen(self.n, known_cards, self.deck)
-        return OptionValues(
-            (1 - decimal) * next_val_bot.call + decimal * next_val_top.call - theo.call,
-            (1 - decimal) * next_val_bot.put + decimal * next_val_top.put - theo.put
-        ) 
-
+        self.future = sum(self.seen_cards) + mean_remaining * (n_total - len(self.seen_cards))
+        
 
     def calculate_all_greeks_and_theos(self) -> None:
         self.deck_max_sum = CardValuation.deck_max_sum_with_seen(self.n, self.seen_cards, self.deck)
+        self.calculate_future_value(self.seen_cards, self.n)
         for strike in self.strike_list:        
             theo = self.option_theos(self.seen_cards, self.n, strike)
-            delta = self.option_deltas(self.seen_cards, self.n, strike)
-            gamma = self.option_gammas(self.seen_cards, self.n, strike)            
-            theta = self.option_thetas(theo, self.seen_cards, self.n, strike)
+            if self.calculate_greeks:
+                delta = self.option_deltas(self.seen_cards, self.n, strike)
+                gamma = self.option_gammas(self.seen_cards, self.n, strike)
+                mean_remaining = self.mean_remaining(self.seen_cards)            
+                theta = self.option_thetas(theo, self.seen_cards, self.n, strike, mean_remaining)
+                charm = self.option_charms(delta, self.seen_cards, self.n, strike, mean_remaining)
+                color = self.option_colors(gamma, self.seen_cards, self.n, strike, mean_remaining)
+            else:
+                delta = gamma = theta = charm = color = OptionValues(np.nan, np.nan)
             self.options[strike] = Option(
                 strike,
-                OptionValuation(theo.call, delta.call, gamma.call, theta.call if len(self.seen_cards) < self.n else 0),
-                OptionValuation(theo.put, delta.put, gamma.put, theta.put if len(self.seen_cards) < self.n else 0),
+                OptionValuation(theo.call, delta.call, gamma.call, theta.call if len(self.seen_cards) < self.n else 0, charm.call, color.call),
+                OptionValuation(theo.put, delta.put, gamma.put, theta.put if len(self.seen_cards) < self.n else 0, charm.put, color.put),
                 self.n - len(self.seen_cards)
             )
