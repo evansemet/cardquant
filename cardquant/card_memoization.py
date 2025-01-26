@@ -274,7 +274,15 @@ class CardValuation:
     def change_time_greek(self, current: OptionValues, function: Callable, known_cards: list[int], n_total: int, strike: int, mean_remaining: float | None = None) -> OptionValues:
         mean_remaining = mean_remaining if mean_remaining is not None else self.mean_remaining(known_cards)
         bot, top = math.floor(mean_remaining), math.ceil(mean_remaining)
-        decimal = mean_remaining - bot
+        while self.seen_cards.count(bot) == self.deck.count(bot):
+            bot -= 1
+        if bot < min(self.deck):
+            return OptionValues(np.nan, np.nan)
+        while self.seen_cards.count(top) == self.deck.count(top):
+            top += 1
+        if top > max(self.deck):
+            return OptionValues(np.nan, np.nan)
+        decimal = (mean_remaining - bot) / (top - bot)
         max_sum_cpy = copy(self.deck_max_sum)
         self.deck_max_sum = CardValuation.deck_max_sum_with_seen(n_total, known_cards + [bot], self.deck)
         next_val_bot = function(known_cards + [bot], n_total, strike)
