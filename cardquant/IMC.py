@@ -143,7 +143,7 @@ class CardValuation:
     
     def replacement(self) -> None:
         if self.with_replacement:
-            self.deck = list(set(self.deck)) * self.n
+            self.deck = list(set(self.deck)) * (self.n + 1)
 
 
     @staticmethod
@@ -282,7 +282,7 @@ class CardValuation:
             top += 1
         if top > max(self.deck):
             return OptionValues(np.nan, np.nan)
-        decimal = (mean_remaining - bot) / (top - bot)
+        decimal = (mean_remaining - bot) / (top - bot) if (top - bot) != 0 else 0.5
         max_sum_cpy = copy(self.deck_max_sum)
         self.deck_max_sum = CardValuation.deck_max_sum_with_seen(n_total, known_cards + [bot], self.deck)
         next_val_bot = function(known_cards + [bot], n_total, strike)

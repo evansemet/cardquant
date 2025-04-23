@@ -1,3 +1,5 @@
-from .card_memoization import CardValuation
+from .IMC import CardValuation
+from .Figgie import Figgie
 
-__all__ = ["CardValuation"]
+
+__all__ = ["CardValuation", "Figgie"]
