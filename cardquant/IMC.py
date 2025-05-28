@@ -80,16 +80,11 @@ class CardValuation:
 
     def __repr__(self) -> str:
         records = [] 
-        
-        def format_strike(value):
-            if isinstance(value, (int, float)):
-                return f"{value:.4f}" 
-            return str(value)
 
         if self.calculate_all_greeks:
             for strike_val, option_obj in self.options.items(): 
                 records.append({
-                    'Strike': format_strike(strike_val),
+                    'Strike': strike_val,
                     'OptionType': 'CALL',
                     'Theo': f"{option_obj.call.theo:.4f}",
                     'Delta Δ': f"{option_obj.call.delta:.4f}",
@@ -99,7 +94,7 @@ class CardValuation:
                     'Color χ': f"{option_obj.call.color:.4f}"
                 })
                 records.append({
-                    'Strike': format_strike(strike_val),
+                    'Strike': strike_val,
                     'OptionType': 'PUT',
                     'Theo': f"{option_obj.put.theo:.4f}", 
                     'Delta Δ':f"{option_obj.put.delta:.4f}",
@@ -113,13 +108,13 @@ class CardValuation:
         else:
             for strike_val, option_obj in self.options.items():
                 records.append({
-                    'Strike': format_strike(strike_val),
+                    'Strike': strike_val,
                     'OptionType': 'CALL',
                     'Theo': f"{option_obj.call.theo:.4f}",
                     'Delta Δ': f"{option_obj.call.delta:.4f}"
                 })
                 records.append({
-                    'Strike': format_strike(strike_val),
+                    'Strike': strike_val,
                     'OptionType': 'PUT',
                     'Theo': f"{option_obj.put.theo:.4f}",
                     'Delta Δ': f"{option_obj.put.delta:.4f}"

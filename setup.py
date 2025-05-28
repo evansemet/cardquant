@@ -5,7 +5,7 @@ with open("README.md", "r", encoding="utf-8") as fh:
 
 setup(
     name="cardquant",
-    version="0.1.9",
+    version="0.1.10",
     author="Evan Semet",
     author_email="evancsemet@gmail.com",
     description="A library for mock quantitative trading exercises.",
